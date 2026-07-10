@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>発表プロンプター｜JCCPCS Fontan CFD</title>
+<style>
+  :root{ --fs:24px; }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; overscroll-behavior:none; }
+  body{
+    background:#0b0e14; color:#f2f4f8;
+    font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;
+    display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+    user-select:none; -webkit-user-select:none;
+  }
+  /* ── 上段：タイマー ── */
+  #topbar{
+    display:flex; align-items:center; gap:8px;
+    padding:6px 10px; background:#131826; border-bottom:1px solid #232a3d;
+  }
+  #resetBtn{
+    font-size:20px; padding:8px 12px; background:#1d2436; color:#8fa0c0;
+    border:none; border-radius:10px;
+  }
+  #clock{
+    flex:1; text-align:center; font-variant-numeric:tabular-nums;
+    font-size:44px; font-weight:800; letter-spacing:1px; color:#4ade80;
+    line-height:1.1; border-radius:12px;
+  }
+  #clock.paused{ color:#8fa0c0; }
+  #clock.warn{ color:#fbbf24; }
+  #clock.over{ color:#f87171; animation:blink 1s step-start infinite; }
+  @keyframes blink{ 50%{ opacity:.35; } }
+  #clock small{ display:block; font-size:11px; font-weight:600; color:#66738f; letter-spacing:0; }
+  #rightbox{ text-align:right; min-width:74px; }
+  #pos{ font-size:15px; font-weight:700; color:#8fa0c0; }
+  #delta{ font-size:15px; font-weight:800; min-height:18px; }
+  #delta.ahead{ color:#4ade80; }
+  #delta.behind{ color:#f87171; }
+  /* ── 中段：スライド情報 ── */
+  #subbar{
+    display:flex; align-items:baseline; gap:10px;
+    padding:8px 14px 6px; background:#10141f;
+  }
+  #stitle{ font-size:17px; font-weight:800; color:#7dd3fc; flex:1;
+           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #scount{ font-size:17px; font-weight:800; color:#a5b4cf; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #scount.over{ color:#f87171; }
+  /* ── 本文 ── */
+  #text{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:14px 18px 24px; font-size:var(--fs); line-height:1.65; font-weight:700;
+  }
+  #text p{ margin-bottom:.7em; }
+  #text .dir{ color:#facc15; font-size:.78em; font-weight:800; }   /* 演出指示 */
+  #text .em{ color:#fda4af; }                                       /* 強調セリフ */
+  #nextline{
+    padding:6px 14px; font-size:13px; color:#66738f; background:#10141f;
+    border-top:1px solid #1b2233; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* ── 下段：操作 ── */
+  footer{
+    display:flex; gap:8px; padding:8px 10px 10px; background:#131826; border-top:1px solid #232a3d;
+  }
+  footer button{
+    border:none; border-radius:14px; font-weight:800; color:#e6ebf5; background:#1d2436;
+    padding:16px 0; font-size:18px;
+  }
+  #prev{ flex:2; }
+  #next{ flex:3; background:#2563eb; font-size:20px; }
+  #fminus,#fplus{ flex:1; font-size:17px; color:#9fb0d0; }
+  #editBtn{ flex:1; font-size:19px; }
+  /* ── 編集オーバーレイ ── */
+  #editWrap{
+    position:fixed; inset:0; background:#0b0e14; display:none; flex-direction:column; z-index:50;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  #editWrap.show{ display:flex; }
+  #editHead{ padding:12px 16px; font-size:16px; font-weight:800; color:#7dd3fc; }
+  #editArea{
+    flex:1; margin:0 12px; background:#131826; color:#f2f4f8; border:1px solid #2c3550;
+    border-radius:12px; padding:12px; font-size:18px; line-height:1.6;
+    font-family:inherit; resize:none; user-select:text; -webkit-user-select:text;
+  }
+  #editBtns{ display:flex; gap:8px; padding:10px 12px; }
+  #editBtns button{ flex:1; border:none; border-radius:12px; padding:14px 0; font-size:17px; font-weight:800; }
+  #saveBtn{ background:#16a34a; color:#fff; }
+  #cancelBtn{ background:#1d2436; color:#c3cde0; }
+  #revertBtn{ background:#3f1d24; color:#fda4af; }
+  #hint{
+    position:fixed; left:0; right:0; top:38%; text-align:center; pointer-events:none;
+    font-size:15px; color:#66738f; z-index:5; transition:opacity .5s;
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button id="resetBtn" aria-label="リセット">↺</button>
+  <div id="clock" class="paused"><span id="clockNum">0:00</span><small id="clockHint">タップで開始（持ち時間 7:00）</small></div>
+  <div id="rightbox">
+    <div id="pos">1/21</div>
+    <div id="delta"></div>
+  </div>
+</div>
+
+<div id="subbar">
+  <span id="stitle"></span>
+  <span id="scount"></span>
+</div>
+
+<main id="text"></main>
+<div id="nextline"></div>
+
+<footer>
+  <button id="prev">◀ 前</button>
+  <button id="fminus">A−</button>
+  <button id="fplus">A＋</button>
+  <button id="editBtn">✎</button>
+  <button id="next">次 ▶</button>
+</footer>
+
+<div id="hint">◀ 左右スワイプでもページ送りできます ▶</div>
+
+<div id="editWrap">
+  <div id="editHead">原稿を編集（このスライドのみ）</div>
+  <textarea id="editArea"></textarea>
+  <div id="editBtns">
+    <button id="revertBtn">初期原稿に戻す</button>
+    <button id="cancelBtn">キャンセル</button>
+    <button id="saveBtn">保存</button>
+  </div>
+</div>
+
+<script>
+/* ============ 原稿データ：JCCPCS Fontan CFD（2026-07-11 確定版） ============ */
+/* target: 目安秒数。textの「◆…」行は演出指示（黄色表示）、《…》は強調（ピンク表示） */
+const DEFAULTS = [
+{t:"1. 挨拶・導入", s:20, x:"（ご紹介ありがとうございます。）まず余談ですが、静岡県立病院機構では最近、男女を問わず、育休から時短勤務を経て完全復帰する、という働き方がトレンドになっています。"},
+{t:"2. 表紙・演題", s:22, x:"そのトレンドにしっかり乗っておられる菅藤先生に代わりまして、私、太田が発表いたします。演題は『数値流体力学、CFDによるFontan導管内血栓形成リスクの高い血流停滞領域の同定 ― 心外導管の最適設計に向けて』です。よろしくお願いいたします。"},
+{t:"3. COI", s:6, x:"開示すべき利益相反はございません。"},
+{t:"4. Background 背景", s:30, x:"背景です。近年、小口径の導管を用いたFontan手術が増える傾向にあり、導管内の血栓性狭窄は重篤な合併症となりえます。血流停滞が血栓形成の主要な生体力学的トリガーと考えられていますが、導管形状・局所的な血流停滞・血栓形成の位置関係については、臨床レベルでまだ十分に検討されていません。"},
+{t:"5. Objective 目的", s:18, x:"そこで本研究では、患者個別のCFD解析を用いて、導管形状が血流停滞と血栓形成をどのように引き起こすのかを明らかにし、心外導管の最適設計につなげることを目的としました。"},
+{t:"6. Patients 2症例", s:28, x:"対象は2症例です。症例1は左心低形成症候群で、生後29か月に16ミリ導管でTCPCを施行しました。症例2は単心室で、生後22か月に18ミリのePTFE導管でTCPCを施行しました。いずれの症例も、下大静脈吻合部近傍の心外導管の右前方に血栓形成を認め、造影CTで確認されました。"},
+{t:"7. Methods 方法", s:40, x:"方法です。造影CTから血栓を仮想的に除去し、術直後の導管三次元モデルを再構成しました。OpenFOAM v8.0を用い、呼吸性変動を考慮した非定常CFD解析を、生理的な呼吸周期で行いました。境界条件は、流入の上大静脈と下大静脈に時間変化する速度、流出の両側肺動脈に圧条件を下てデータに基づいて設定しています。それらにより示された、RRT、WSS、OSI、流れのパターンを評価し、画像上の血栓の位置と対応させました。"},
+{t:"8. 術後CT（Case2）", s:18, x:"◆ 術後16日目の造影CTを提示（軸位・冠状断）／血栓を指し示す\n具体的には、このように比較的早期に認められた導管内血栓症例に対して"},
+{t:"9. 3Dモデル vs 停滞", s:26, x:"左が実際の血栓、中央緑の囲いが血栓を除去して再構成した術直後の三次元モデル、\n\n右がCFDによる血流停滞の解析\n\nというような流れです。"},
+{t:"10. 2症例比較（動画）", s:40, x:"◆ 停滞体積・RRTの動画を再生（Case1／Case2）\nここで2症例を比較します。\n左から、三次元的な血栓箇所が赤く囲った部位\n\n表面から見た血流停滞、そしてWSSから算出したRRTです。血流の停滞領域と、RRTが高値を示す領域が、実際の血栓形成部位、すなわち下大静脈吻合部近傍の導管右前方と空間的に一致していました。\n\n両症例で全く同じパターンが認められました.\n\nあくまでもこれらは導管壁での変化、状態を捉えたもので、壁の変化と血栓付着部位が一致していたとも言い換えられます。では実際中ではどのような血流状況であるか？"},
+{t:"11. 流れの剥離（動画）", s:33, x:"◆ 2D速度ベクトル動画を再生（Case1／Case2）\nOSIが最も高かった部位での断面における、血流の向きと速さを示しています。実際に血栓ができていると思われる箇所では、導管の中でも壁に沿って厚みを持って、血流が非常に遅く、ほとんど停滞しているエリアが存在し、その境界線がはっきりと見て取れます。いわゆる流れの剥離という現象が、両症例で生じていることがわかります。"},
+{t:"12. Pathline（動画）", s:37, x:"◆ Pathline動画を再生（青＝SVC由来／赤＝IVC由来）\nPathlineは、流体中のある粒子を追跡したとき、その粒子が時間とともに描く軌跡を線で示したものです\n\nこのpathlineで導管内の血流を三次元的に見てみますと、先ほどの流れの剥離が生じている箇所では、血流が肺動脈方向へ抜けずに、ゆっくりと滞留していることがわかります。さらに、この剥離エリアには、下大静脈からの血流粒子、赤い粒子がほとんど入り込んでいないことも見て取れます。"},
+{t:"13. SVC/IVC 流れ（動画）", s:30, x:"◆ 同じ動画＋注釈。吹き出しを順に指し示す\n同じpathlineに注釈を加えたものです。下大静脈からの血流は左肺動脈へ優先的に流れる一方、導管の壁の一部では、上大静脈由来と下大静脈由来の流れがぶつかり、再循環と停滞のゾーンが形成されています。この領域ではWSSが低下しており、血栓形成防止に不利な血行動態環境が局所的に生じています。"},
+{t:"14. Discussion 考察", s:30, x:"考察です。吻合角度の異常や非対称な吻合といった導管形状のずれが、流れの剥離・再循環・停滞を引き起こします。これにより低WSS、高OSI、高RRTが生じ、凝固因子の局所滞留と、血小板の付着・活性化が促進されます。さらに人工血管であることによる血管内皮の欠如も相まって、Virchowの三徴が揃い、血栓形成に至ると考えられます。"},
+{t:"15. Conclusion 結語", s:33, x:"結語です。両症例とも、血栓は流れの剥離・低WSS・高RRTが収束する領域に限局して形成されていました。RRTマッピングと流れの剥離解析を、従来の停滞指標と統合することで、血栓形成リスクの高い領域をより正確に同定できます。さらに術前の仮想シミュレーションにより、血栓形成リスクを最小化する導管設計が可能になると考えます。ご清聴ありがとうございました。"}
+];
+const LIMIT = 7*60;          // 持ち時間 7:00
+const WARN  = 6*60;          // 6:00 で黄色
+const OVER  = 6*60+40;       // 6:40 で赤点滅
+
+/* ============ 状態 ============ */
+let texts;                    // 編集反映済み原稿
+try { texts = JSON.parse(localStorage.getItem("jc_fontan_texts")||"null"); } catch(e){ texts=null; }
+if(!Array.isArray(texts) || texts.length!==DEFAULTS.length) texts = DEFAULTS.map(d=>d.x);
+
+let fs = 24;
+try { fs = parseInt(localStorage.getItem("jc_fontan_font"))||24; } catch(e){}
+document.documentElement.style.setProperty("--fs", fs+"px");
+
+let cur = 0;                  // 現在スライド
+let running = false;
+let elapsed = 0;              // 合計経過秒（float）
+let lastTick = 0;
+let slideStartAt = 0;         // このスライドに入った時点の経過秒
+let deltaAtArrival = null;    // 到着時の予定比（秒）
+
+const planStart = [];         // 各スライドの予定開始秒
+{ let acc=0; for(const d of DEFAULTS){ planStart.push(acc); acc+=d.s; } }
+
+/* ============ 要素 ============ */
+const $ = id => document.getElementById(id);
+const clockEl=$("clock"), clockNum=$("clockNum"), clockHint=$("clockHint"),
+      posEl=$("pos"), deltaEl=$("delta"), stitleEl=$("stitle"), scountEl=$("scount"),
+      textEl=$("text"), nextEl=$("nextline"), hintEl=$("hint");
+
+/* ============ 描画 ============ */
+function fmt(sec){ sec=Math.max(0,Math.floor(sec)); return Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0"); }
+
+function renderSlide(){
+  posEl.textContent = (cur+1)+"/"+DEFAULTS.length;
+  stitleEl.textContent = DEFAULTS[cur].t;
+  const html = texts[cur].split("\n").map(line=>{
+    line = line.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    line = line.replace(/《(.*?)》/g,'<span class="em">$1</span>');
+    if(line.startsWith("◆")) return '<p class="dir">'+line+"</p>";
+    return "<p>"+line+"</p>";
+  }).join("");
+  textEl.innerHTML = html;
+  textEl.scrollTop = 0;
+  nextEl.textContent = cur+1<DEFAULTS.length ? "次▶ "+DEFAULTS[cur+1].t : "（最終スライド）";
+  if(deltaAtArrival===null){ deltaEl.textContent=""; deltaEl.className=""; }
+  else{
+    const d=Math.round(deltaAtArrival);
+    deltaEl.textContent = d>0 ? "+"+d+"秒 遅れ" : d<0 ? (-d)+"秒 先行" : "予定通り";
+    deltaEl.className = d>3 ? "behind" : "ahead";
+  }
+}
+
+function tick(){
+  if(running){
+    const now=performance.now()/1000;
+    elapsed += now-lastTick; lastTick=now;
+  }
+  clockNum.textContent = fmt(elapsed);
+  clockEl.className = !running ? "paused" : elapsed>=OVER ? "over" : elapsed>=WARN ? "warn" : "";
+  clockHint.textContent = running ? "残り "+fmt(LIMIT-elapsed)+"（タップで一時停止）"
+                                  : elapsed>0 ? "一時停止中（タップで再開）" : "タップで開始（持ち時間 7:00）";
+  const rem = DEFAULTS[cur].s-(elapsed-slideStartAt);
+  scountEl.textContent = running||elapsed>0 ? (rem>=0 ? "このスライド残り "+Math.ceil(rem)+"秒" : "超過 "+Math.ceil(-rem)+"秒")
+                                            : "目安 "+DEFAULTS[cur].s+"秒";
+  scountEl.className = rem<0 ? "over" : "";
+}
+
+/* ============ 操作 ============ */
+function go(n){
+  if(n<0||n>=DEFAULTS.length) return;
+  cur=n;
+  slideStartAt=elapsed;
+  deltaAtArrival = (running||elapsed>0) ? elapsed-planStart[cur] : null;
+  renderSlide();
+}
+$("next").onclick=()=>go(cur+1);
+$("prev").onclick=()=>go(cur-1);
+
+clockEl.onclick=()=>{
+  running=!running;
+  if(running){ lastTick=performance.now()/1000; requestWake(); }
+};
+$("resetBtn").onclick=()=>{
+  if(!confirm("タイマーとページを最初に戻しますか？")) return;
+  running=false; elapsed=0; slideStartAt=0; deltaAtArrival=null; go(0);
+};
+
+$("fplus").onclick=()=>setFont(fs+2);
+$("fminus").onclick=()=>setFont(fs-2);
+function setFont(v){
+  fs=Math.min(44,Math.max(16,v));
+  document.documentElement.style.setProperty("--fs",fs+"px");
+  try{ localStorage.setItem("jc_fontan_font",fs); }catch(e){}
+}
+
+/* 編集 */
+const editWrap=$("editWrap"), editArea=$("editArea");
+$("editBtn").onclick=()=>{ editArea.value=texts[cur]; editWrap.classList.add("show"); };
+$("cancelBtn").onclick=()=>editWrap.classList.remove("show");
+$("saveBtn").onclick=()=>{
+  texts[cur]=editArea.value;
+  try{ localStorage.setItem("jc_fontan_texts",JSON.stringify(texts)); }catch(e){}
+  editWrap.classList.remove("show"); renderSlide();
+};
+$("revertBtn").onclick=()=>{ editArea.value=DEFAULTS[cur].x; };
+
+/* スワイプ */
+let tx=null,ty=null;
+textEl.addEventListener("touchstart",e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
+textEl.addEventListener("touchend",e=>{
+  if(tx===null) return;
+  const dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty;
+  if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)*1.5){ dx>0?go(cur+1):go(cur-1); }
+  tx=ty=null;
+},{passive:true});
+
+/* 画面スリープ防止（対応端末のみ） */
+let wl=null;
+async function requestWake(){
+  try{ if("wakeLock" in navigator){ wl=await navigator.wakeLock.request("screen"); } }catch(e){}
+}
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&running) requestWake(); });
+
+/* 起動 */
+renderSlide();
+tick();
+setInterval(tick, 250);
+setTimeout(()=>hintEl.style.opacity=0, 4000);
+</script>
+</body>
+</html>
