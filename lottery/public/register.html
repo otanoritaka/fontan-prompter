@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lucky Draw Registration</title>
+<style>
+  :root { --bg:#f4f6fa; --card:#fff; --ink:#17202e; --muted:#5d6878; --accent:#0b6bcb; --line:#d6dce5; --err:#c62828; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif; }
+  main { max-width:480px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:22px; margin:8px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; font-size:14px; }
+  .card { background:var(--card); border-radius:14px; padding:20px 16px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  label { display:block; font-weight:600; font-size:14px; margin:14px 0 6px; }
+  label:first-child { margin-top:0; }
+  input { width:100%; font-size:17px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
+  input:focus { outline:2px solid var(--accent); border-color:transparent; }
+  button { width:100%; margin-top:22px; font-size:18px; font-weight:700; padding:14px; border:0; border-radius:10px;
+    background:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; }
+  .err { color:var(--err); font-size:14px; margin-top:12px; min-height:1em; }
+  .done { text-align:center; }
+  .done .label { color:var(--muted); font-size:15px; margin-top:8px; }
+  .num { font-size:96px; font-weight:800; letter-spacing:4px; color:var(--accent); line-height:1.1; margin:8px 0; font-variant-numeric:tabular-nums; }
+  .note { background:#fff8e1; border-radius:10px; padding:12px; font-size:14px; text-align:left; margin-top:16px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Lucky Draw</h1>
+  <p class="sub">Register to receive your lottery number.</p>
+
+  <section id="formCard" class="card">
+    <form id="f" novalidate>
+      <label for="name">Full name</label>
+      <input id="name" name="name" autocomplete="name" required>
+      <label for="affiliation">Affiliation (hospital / institution)</label>
+      <input id="affiliation" name="affiliation" autocomplete="organization" required>
+      <label for="country">Country / Region</label>
+      <input id="country" name="country" list="countries" value="China" required>
+      <datalist id="countries">
+        <option>China</option><option>Hong Kong, China</option><option>Macau, China</option><option>Taiwan, China</option>
+        <option>Japan</option><option>Korea</option><option>Singapore</option><option>Malaysia</option><option>Thailand</option>
+        <option>Vietnam</option><option>India</option><option>Indonesia</option><option>Philippines</option>
+        <option>Australia</option><option>United States</option><option>United Kingdom</option><option>Germany</option>
+      </datalist>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" inputmode="email" autocomplete="email" required>
+      <button id="btn" type="submit">Register</button>
+      <div class="err" id="err"></div>
+    </form>
+  </section>
+
+  <section id="doneCard" class="card done hidden">
+    <div class="label" id="hello"></div>
+    <div class="label">Your lottery number</div>
+    <div class="num" id="num">---</div>
+    <div class="note">
+      <b>Please take a screenshot of this screen.</b><br>
+      <span id="mailNote">A confirmation email has also been sent (please check your spam folder).</span>
+      Winners will be announced on the screen at the venue.
+    </div>
+  </section>
+
+  <section id="closedCard" class="card hidden">Registration is closed.</section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+function showNumber(d) {
+  $('formCard').classList.add('hidden');
+  $('closedCard').classList.add('hidden');
+  $('doneCard').classList.remove('hidden');
+  $('num').textContent = d.number;
+  $('mailNote').style.display = d.mail === false ? 'none' : '';
+  $('hello').textContent = d.already ? `Already registered: ${d.name}` : `Thank you, ${d.name}`;
+}
+
+const saved = load('lottery-reg');
+if (saved) { try { showNumber(JSON.parse(saved)); } catch (e) {} }
+
+fetch('/api/info').then((r) => r.json()).then((i) => {
+  $('title').textContent = i.eventName;
+  document.title = i.eventName + ' Registration';
+  if (!i.registrationOpen && !saved) { $('formCard').classList.add('hidden'); $('closedCard').classList.remove('hidden'); }
+}).catch(() => {});
+
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('err').textContent = '';
+  const body = Object.fromEntries(new FormData(e.target));
+  for (const k of ['name', 'affiliation', 'country', 'email'])
+    if (!String(body[k] || '').trim()) { $('err').textContent = 'Please fill in all fields.'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim())) { $('err').textContent = 'Please enter a valid email.'; return; }
+  $('btn').disabled = true; $('btn').textContent = 'Registering…';
+  try {
+    const r = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Registration failed.');
+    store('lottery-reg', JSON.stringify(d));
+    showNumber(d);
+  } catch (err) {
+    $('err').textContent = err.message || 'Network error. Please try again.';
+  } finally {
+    $('btn').disabled = false; $('btn').textContent = 'Register';
+  }
+});
+</script>
+</body>
+</html>

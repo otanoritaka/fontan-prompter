@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lucky Draw Host</title>
+<style>
+  :root { --bg:#0d1526; --panel:#16213a; --ink:#eef3ff; --muted:#93a1bd; --accent:#ffc83d; --surg:#4fc3f7; --asst:#81c784; --line:#2a3858; --danger:#ef5350; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:20px; margin:0 16px 0 0; }
+  .tabs button, .btn { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  .tabs button.on { background:var(--accent); color:#1a1300; border-color:var(--accent); font-weight:700; }
+  .stats { margin-left:auto; color:var(--muted); font-size:14px; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .pill { padding:3px 10px; border-radius:99px; font-weight:700; font-size:13px; }
+  .pill.open { background:#1b5e20; } .pill.closed { background:#7f1d1d; }
+  section { padding:20px; } .hidden { display:none !important; }
+
+  /* draw stage */
+  .rounds { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-bottom:16px; }
+  .rounds button { font-size:18px; padding:10px 22px; }
+  .rounds button.done::after { content:" ✓"; color:var(--asst); }
+  .stageTitle { text-align:center; font-size:clamp(28px,4vw,52px); font-weight:800; margin:6px 0 4px; }
+  .roller { text-align:center; font-size:clamp(70px,11vw,150px); font-weight:900; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:6px; min-height:1.15em; line-height:1.15; }
+  .actions { display:flex; gap:10px; justify-content:center; margin:6px 0 14px; flex-wrap:wrap; }
+  .big { font-size:24px; font-weight:800; padding:14px 48px; background:var(--accent); color:#1a1300; border:0; border-radius:12px; cursor:pointer; }
+  .big:disabled { opacity:.4; cursor:default; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:1400px; margin:0 auto; }
+  .col h2 { margin:0 0 10px; font-size:clamp(20px,2.4vw,32px); text-align:center; }
+  .col.s h2 { color:var(--surg); } .col.a h2 { color:var(--asst); }
+  .card { display:flex; align-items:center; gap:16px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px 16px; margin-bottom:8px; animation:pop .45s ease-out; }
+  .col.s .card { border-left:6px solid var(--surg); } .col.a .card { border-left:6px solid var(--asst); }
+  .card .n { font-size:clamp(28px,3vw,44px); font-weight:900; font-variant-numeric:tabular-nums; min-width:2.6em; }
+  .card .who { flex:1; min-width:0; }
+  .card .nm { font-size:clamp(18px,2vw,28px); font-weight:700; }
+  .card .af { color:var(--muted); font-size:clamp(13px,1.3vw,18px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card.absent { opacity:.35; text-decoration:line-through; animation:none; }
+  .card .x { background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:12px; cursor:pointer; }
+  @keyframes pop { from { transform:scale(.85); opacity:0; } to { transform:none; opacity:1; } }
+
+  /* tables */
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
+  .toolbar { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
+  input.search { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:14px; min-width:240px; }
+
+  /* QR */
+  .qrwrap { text-align:center; }
+  .qrwrap img { width:min(70vh,90vw); background:#fff; padding:16px; border-radius:16px; }
+  .qrwrap .u { font-size:clamp(18px,2.4vw,30px); margin-top:14px; word-break:break-all; }
+  .err { color:var(--danger); text-align:center; min-height:1.2em; }
+  .login { max-width:420px; margin:80px auto; text-align:center; }
+  .login input { width:100%; font-size:18px; padding:10px; margin:12px 0; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+</style>
+</head>
+<body>
+<div id="login" class="login hidden">
+  <h2>Host key</h2>
+  <input id="keyIn" type="password" placeholder="Enter host key">
+  <button class="big" id="keyBtn">Enter</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <h1 id="ev">Lucky Draw</h1>
+  <div class="tabs">
+    <button data-tab="draw" class="on">Draw</button>
+    <button data-tab="list">Registrants</button>
+    <button data-tab="qr">QR code</button>
+  </div>
+  <div class="stats">
+    <span>Registered: <b id="cnt">0</b></span>
+    <span>Eligible: <b id="elig">0</b></span>
+    <span id="regPill" class="pill open">OPEN</span>
+    <button class="btn" id="regToggle">Close registration</button>
+  </div>
+</header>
+
+<section id="tab-draw">
+  <div class="rounds" id="rounds"></div>
+  <div class="stageTitle" id="stageTitle">Round 1</div>
+  <div class="roller" id="roller">---</div>
+  <div class="actions">
+    <button class="big" id="drawBtn">DRAW</button>
+    <button class="btn" id="resetBtn">Reset this round</button>
+  </div>
+  <div class="err" id="drawErr"></div>
+  <div class="cols">
+    <div class="col s"><h2>Surgeons</h2><div id="colS"></div></div>
+    <div class="col a"><h2>Assistants</h2><div id="colA"></div></div>
+  </div>
+</section>
+
+<section id="tab-list" class="hidden">
+  <div class="toolbar">
+    <input class="search" id="q" placeholder="Search name / affiliation / email / number">
+    <a class="btn" id="csv" href="#">Download CSV</a>
+    <span id="mailInfo" style="color:var(--muted);font-size:13px"></span>
+  </div>
+  <table>
+    <thead><tr><th>No.</th><th>Name</th><th>Affiliation</th><th>Country</th><th>Email</th><th>Email status</th><th>Result</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</section>
+
+<section id="tab-qr" class="hidden">
+  <div class="qrwrap">
+    <img id="qrImg" alt="Registration QR code">
+    <div class="u" id="qrUrl"></div>
+    <div style="color:var(--muted);margin-top:8px">Scan with your phone camera to register</div>
+  </div>
+</section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pad = (n) => String(n).padStart(3, '0');
+let KEY = new URLSearchParams(location.search).get('key') || (()=>{ try { return sessionStorage.getItem('hostKey'); } catch(e) { return null; } })();
+let S = null, current = '1', animating = false;
+
+async function api(path, body) {
+  const r = await fetch('/api/admin/' + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'X-Admin-Key': KEY || '', 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.error || 'Error'); e.status = r.status; throw e; }
+  return d;
+}
+
+async function start() {
+  try {
+    S = await api('state');
+    try { sessionStorage.setItem('hostKey', KEY); } catch (e) {}
+    if (location.search) history.replaceState(null, '', '/host');
+    $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+    render();
+    setInterval(async () => { if (!animating) { try { S = await api('state'); renderStats(); if (!$('tab-list').classList.contains('hidden')) renderList(); } catch (e) {} } }, 4000);
+  } catch (e) {
+    $('app').classList.add('hidden'); $('login').classList.remove('hidden');
+    if (KEY) $('loginErr').textContent = e.message;
+  }
+}
+$('keyBtn').onclick = () => { KEY = $('keyIn').value.trim(); start(); };
+$('keyIn').onkeydown = (e) => { if (e.key === 'Enter') $('keyBtn').click(); };
+
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  for (const t of ['draw', 'list', 'qr']) $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
+  if (b.dataset.tab === 'list') renderList();
+});
+
+function renderStats() {
+  $('ev').textContent = S.eventName; document.title = S.eventName + ' Host';
+  $('cnt').textContent = S.registrants.length; $('elig').textContent = S.eligibleCount;
+  $('regPill').textContent = S.registrationOpen ? 'OPEN' : 'CLOSED';
+  $('regPill').className = 'pill ' + (S.registrationOpen ? 'open' : 'closed');
+  $('regToggle').textContent = S.registrationOpen ? 'Close registration' : 'Reopen registration';
+  $('mailInfo').textContent = S.mailConfigured ? '' : 'Email is not configured (SMTP_*). Numbers are shown on phones only.';
+}
+function render() {
+  renderStats();
+  const rb = $('rounds'); rb.innerHTML = '';
+  for (let i = 1; i <= S.roundsTotal; i++) {
+    const b = document.createElement('button');
+    b.className = 'btn' + (String(i) === current ? ' on' : '') + (S.rounds[i] ? ' done' : '');
+    if (String(i) === current) { b.style.background = 'var(--accent)'; b.style.color = '#1a1300'; }
+    b.textContent = 'Round ' + i;
+    b.onclick = () => { if (!animating) { current = String(i); $('roller').textContent = '---'; $('drawErr').textContent = ''; render(); } };
+    rb.appendChild(b);
+  }
+  $('stageTitle').textContent = `Round ${current} — ${S.perRole} Surgeons + ${S.perRole} Assistants`;
+  const rd = S.rounds[current];
+  $('drawBtn').disabled = !!rd || animating;
+  $('resetBtn').classList.toggle('hidden', !rd || animating);
+  $('colS').innerHTML = ''; $('colA').innerHTML = '';
+  if (rd) for (const w of rd.winners) addCard(w);
+}
+function addCard(w) {
+  const c = document.createElement('div');
+  c.className = 'card' + (w.absent ? ' absent' : '');
+  const n = document.createElement('div'); n.className = 'n'; n.textContent = pad(w.number);
+  const who = document.createElement('div'); who.className = 'who';
+  const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = w.name || '';
+  const af = document.createElement('div'); af.className = 'af'; af.textContent = [w.affiliation, w.country].filter(Boolean).join(' · ');
+  who.append(nm, af); c.append(n, who);
+  if (!w.absent && !animating) {
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = 'Absent → redraw';
+    x.onclick = () => redraw(w);
+    c.append(x);
+  }
+  (w.role === 'Surgeon' ? $('colS') : $('colA')).appendChild(c);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function roll(finalNum, ms) {
+  const nums = S.registrants.map((r) => r.number);
+  const end = Date.now() + ms;
+  while (Date.now() < end) { $('roller').textContent = pad(nums[Math.floor(Math.random() * nums.length)]); await sleep(55); }
+  $('roller').textContent = pad(finalNum);
+}
+
+$('drawBtn').onclick = async () => {
+  $('drawErr').textContent = '';
+  try {
+    animating = true; $('drawBtn').disabled = true;
+    S = await api('draw', { round: current });
+    const winners = S.rounds[current].winners;
+    $('colS').innerHTML = ''; $('colA').innerHTML = '';
+    for (const w of winners) { await roll(w.number, 1400); addCard(w); await sleep(500); }
+  } catch (e) { $('drawErr').textContent = e.message; }
+  animating = false; render();
+};
+async function redraw(w) {
+  if (!confirm(`Mark No.${pad(w.number)} ${w.name} as absent and draw a replacement ${w.role}?`)) return;
+  try {
+    animating = true;
+    const before = new Set(S.rounds[current].winners.map((x) => x.number));
+    S = await api('redraw', { round: current, number: w.number });
+    const nw = S.rounds[current].winners.find((x) => !before.has(x.number));
+    render(); animating = true;
+    if (nw) await roll(nw.number, 1600);
+  } catch (e) { $('drawErr').textContent = e.message; }
+  animating = false; render();
+}
+$('resetBtn').onclick = async () => {
+  if (!confirm(`Reset Round ${current}? Its winners will become eligible again.`)) return;
+  try { S = await api('reset-round', { round: current }); $('roller').textContent = '---'; render(); } catch (e) { $('drawErr').textContent = e.message; }
+};
+$('regToggle').onclick = async () => {
+  try { S = await api('registration', { open: !S.registrationOpen }); render(); } catch (e) { alert(e.message); }
+};
+
+function resultMap() {
+  const m = new Map();
+  for (const [k, rd] of Object.entries(S.rounds)) for (const w of rd.winners) m.set(w.number, `R${k} ${w.role}${w.absent ? ' (absent)' : ''}`);
+  return m;
+}
+function renderList() {
+  const q = $('q').value.trim().toLowerCase(), res = resultMap(), tb = $('rows');
+  tb.innerHTML = '';
+  for (const r of S.registrants.slice().reverse()) {
+    const hay = [pad(r.number), r.name, r.affiliation, r.country, r.email].join(' ').toLowerCase();
+    if (q && !hay.includes(q)) continue;
+    const tr = document.createElement('tr');
+    for (const v of [pad(r.number), r.name, r.affiliation, r.country, r.email, r.mail, res.get(r.number) || '']) {
+      const td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+    }
+    const td = document.createElement('td');
+    if (S.mailConfigured) {
+      const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'Resend';
+      b.onclick = async () => { b.disabled = true; try { S = await api('resend-mail', { number: r.number }); renderList(); } catch (e) { alert(e.message); } };
+      td.appendChild(b);
+    }
+    tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+$('q').oninput = renderList;
+$('csv').onclick = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/admin/export.csv', { headers: { 'X-Admin-Key': KEY } });
+  const blob = await r.blob(); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'lottery.csv'; a.click();
+};
+function setupQr() {
+  const u = S.registerUrl;
+  $('qrImg').src = '/qr.svg?u=' + encodeURIComponent(u); $('qrUrl').textContent = u;
+}
+document.querySelector('[data-tab="qr"]').addEventListener('click', setupQr);
+start();
+</script>
+</body>
+</html>
